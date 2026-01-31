@@ -10,15 +10,22 @@ class MyLogger {
 
   final File _file;
   late IOSink _sink;
+  static MyLogger? _instance;
+  static String? _logPath;
 
   static String _defaultFilename() {
     final now = DateTime.now();
     return 'log_${now.year % 100}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}-${now.hour.toString().padLeft(2, '0')}${now.minute.toString().padLeft(2, '0')}${now.second.toString().padLeft(2, '0')}.txt';
   }
 
-  MyLogger({String? path}) : _file = File(path ?? _defaultFilename()) {
+  factory MyLogger({String? path}) {
+    return _instance ??= MyLogger._internal(path: path);
+  }
+
+  MyLogger._internal({String? path}) : _file = File(path ?? _defaultFilename()) {
+    _logPath ??= _file.path;
     _sink = _file.openWrite(mode: FileMode.append);
-    print('Logger: File opened at $path');
+    print('Logger: File opened at $_logPath');
   }
 
   void logError(String message) {
@@ -54,7 +61,8 @@ class MyLogger {
   Future<void> close() async {
     await _sink.flush();
     await _sink.close();
-    print('Logger: File closed.');
-  }
-  
+    print('Logger: File closed at $_logPath.');
+  } 
 }
+
+MyLogger get logger => MyLogger();
