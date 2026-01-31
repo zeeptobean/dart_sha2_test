@@ -2,10 +2,9 @@ import 'dart:convert';
 import 'dart:ffi' as ffi;
 import 'dart:io';
 import 'dart:typed_data';
-import 'dart:convert';
 import 'package:ffi/ffi.dart';
 import 'package:convert/convert.dart';
-import 'package:dart_sha2_test/colortext.dart';
+import 'package:dart_sha2_test/mylogger.dart';
 import 'package:dart_sha2_test/expected.dart';
 
 //int(const char*, uint64_t, char*)
@@ -96,15 +95,15 @@ Expected<String> _shaFuncWrapper(ShaDartFunc func, Uint8List input, int digestSi
   return Expected.success(result);
 }
 
-void runTest({required String funcName, required int digestSize, required String testSuiteName}) {
-  final dylib = ffi.DynamicLibrary.open('./clib/libmysha2.so');
-  final ShaDartFunc func = dylib.lookupFunction<ShaCFunc, ShaDartFunc>(funcName);
-  print(ColorText.info("Regular test: Loading $testSuiteName for $funcName..."));
+final logger = MyLogger();
 
+void runTest({required String funcName, required int digestSize, required String testSuiteName}) {
+  final ShaDartFunc func = _dylib.lookupFunction<ShaCFunc, ShaDartFunc>(funcName);
+  logger.logInfo("Regular test: Loading $testSuiteName for $funcName...");
   File f = File("test_vectors/$testSuiteName/$testSuiteName.json");
   final jsonString = f.readAsStringSync();
   final jsonData = jsonDecode(jsonString) as List<dynamic>;
-  print("Detected ${jsonData.length} tests");
+  logger.log("Detected ${jsonData.length} tests");
   List<TestUnit> tests = [];
   for(final item in jsonData) {
     final testUnit = TestUnit.fromJson(item as Map<String, dynamic>);
@@ -113,9 +112,9 @@ void runTest({required String funcName, required int digestSize, required String
     }
   }
   if(tests.length != jsonData.length) {
-    print(ColorText.warning("Warning: Some tests were invalid and have been skipped"));
+    logger.logWarning("Warning: Some tests were invalid and have been skipped");
   }
-  print("Loaded ${tests.length} valid tests");
+  logger.logInfo("Loaded ${tests.length} valid tests");
 
   int correct = 0;
   final stopwatch = Stopwatch()..start();
@@ -123,13 +122,13 @@ void runTest({required String funcName, required int digestSize, required String
     final test = tests[i];
     final result = _shaFuncWrapper(func, test.input, digestSize);
     if(result.isFailure) {
-      print(ColorText.error("Test #$i failed: ${result.getErrorString}"));
+      logger.logError("Test #$i failed: ${result.getErrorString}");
     } else {
       final hash = result.getData!;
       if(hash != test.digest) {
-        print(ColorText.error("Test #$i failed:"));
-        print("   Expected: ${test.digest}");
-        print("   Got     : $hash");
+        logger.logError("Test #$i failed:");
+        logger.logError("   Expected: ${test.digest}");
+        logger.logError("   Got     : $hash");
       } else {
         correct++;
       }
@@ -138,10 +137,10 @@ void runTest({required String funcName, required int digestSize, required String
   stopwatch.stop();
 
   if(correct == tests.length) {
-    print(ColorText.success("All tests passed for $funcName!"));
+    logger.logSuccess("All tests passed for $funcName!");
   }
-  print(ColorText.info("Test completed: $correct / ${tests.length} correct"));
-  print("Time elapsed: ${stopwatch.elapsedMilliseconds} ms");
+  logger.logInfo("Test completed: $correct / ${tests.length} correct");
+  logger.log("Time elapsed: ${stopwatch.elapsedMilliseconds} ms");
 }
 
 Uint8List _concatMonte(Uint8List a, Uint8List b, Uint8List c) {
@@ -152,20 +151,29 @@ Uint8List _concatMonte(Uint8List a, Uint8List b, Uint8List c) {
   return result;
 }
 
+final _dylib = () {
+  if(Platform.isWindows) {
+    return ffi.DynamicLibrary.open('./clib/libmysha2.dll');
+  } else if(Platform.isLinux || Platform.isAndroid) {
+    return ffi.DynamicLibrary.open('./clib/libmysha2.so');
+  } else {
+    throw UnsupportedError("Unsupported platform");
+  }
+}();
+
 void runMonte({required String funcName, required int digestSize, required String testSuiteName}) {
-  final dylib = ffi.DynamicLibrary.open('./clib/libmysha2.so');
-  final ShaDartFunc func = dylib.lookupFunction<ShaCFunc, ShaDartFunc>(funcName);
-  print(ColorText.info("Monte test: Loading $testSuiteName for $funcName..."));
+  final ShaDartFunc func = _dylib.lookupFunction<ShaCFunc, ShaDartFunc>(funcName);
+  logger.logInfo("Monte test: Loading $testSuiteName for $funcName...");
 
   File f = File("test_vectors/$testSuiteName/${testSuiteName}_monte.json");
   final jsonString = f.readAsStringSync();
   final jsonData = jsonDecode(jsonString) as Map<String, dynamic>;
   final monteTest = MonteTest.fromJson(jsonData);
   if(monteTest.isValid == false) {
-    print(ColorText.error("Failed to load valid Monte test data"));
+    logger.logError("Failed to load valid Monte test data");
     return;
   } else {
-    print("Loaded Monte test with ${monteTest.digests.length} iterations");
+    logger.logInfo("Loaded Monte test with ${monteTest.digests.length} iterations");
   }
 
   int correct = 0;
@@ -181,7 +189,7 @@ void runMonte({required String funcName, required int digestSize, required Strin
       a = b;
       b = c;
       if(d.isFailure) {
-        print(ColorText.error("Monte test failed at outer #$j, inner #$i: ${d.getErrorString}"));
+        logger.logError("Monte test failed at outer #$j, inner #$i: ${d.getErrorString}");
         break;
       } else {
         c = Uint8List.fromList(hex.decode(d.getData!));
@@ -190,9 +198,9 @@ void runMonte({required String funcName, required int digestSize, required Strin
     final gotDigest = hex.encode(Uint8List.fromList(c));
     final expectedDigest = hex.encode(Uint8List.fromList(monteTest.digests[j]));
     if(gotDigest != expectedDigest) {
-      print(ColorText.error("Monte test failed at outer #$j:"));
-      print("   Expected: $expectedDigest");
-      print("   Got     : $gotDigest");
+      logger.logError("Monte test failed at outer #$j:");
+      logger.logError("   Expected: $expectedDigest");
+      logger.logError("   Got     : $gotDigest");
     } else {
       correct++;
     }
@@ -203,9 +211,9 @@ void runMonte({required String funcName, required int digestSize, required Strin
   }
   stopwatch.stop();
   if(correct == monteTest.digests.length) {
-    print(ColorText.success("All Monte test iterations passed!"));
+    logger.logSuccess("All Monte test iterations passed!");
   }
-  print(ColorText.info("Test completed: $correct / ${monteTest.digests.length} correct"));
-  print("Time elapsed: ${stopwatch.elapsedMilliseconds} ms");
+  logger.logInfo("Test completed: $correct / ${monteTest.digests.length} correct");
+  logger.log("Time elapsed: ${stopwatch.elapsedMilliseconds} ms");
 
 }

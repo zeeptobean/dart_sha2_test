@@ -4,3 +4,6 @@
 .vscode/
 *.so
 *.o
+*.dll
+*.exe
+*.txt
