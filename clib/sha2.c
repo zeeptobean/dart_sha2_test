@@ -13,8 +13,18 @@ static const uint64_t SHA512_256_INITIAL[8]    = {0x22312194fc2bf72c, 0x9f555fa3
 static const uint64_t SHA512_T_INITIAL[8]      = {0xcfac43c256196cad, 0x1ec20b20216f029e, 0x99cb56d75b315d8e, 0x00ea509ffab89354, 0xf4abf7da08432774, 0x3ea0cd298e9bc9ba, 0xba267c0e5ee418ce, 0xfe4568bcb6db84dc};
 
 static void internal_memset(void *dst, int val, size_t sz) {
+    if (sz == 0) return;
+
+    memset(dst, val, sz);
+#if defined(_MSC_VER)
+    #include <intrin.h>
+    _ReadWriteBarrier();
+#elif defined(__GNUC__) || defined(__clang__)
+    __asm__ __volatile__("" : : "r"(dst) : "memory");
+#else
     void* (*const volatile volatile_memset)(void*, int, size_t) = memset;
     volatile_memset(dst, val, sz);
+#endif
 }
 
 static int internal_free2(void **ptr, size_t size_in_byte) {
@@ -85,9 +95,9 @@ static void sha256_impl(uint32_t arr[16], uint32_t state[8]) {
                             0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
                             0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
                             0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2};
-    uint32_t *h = (uint32_t*) malloc(32);
+    uint32_t h[8];
     memcpy(h, state, 32);
-    uint32_t *w = (uint32_t*) malloc(256);
+    uint32_t w[64];
     memcpy(w, arr, 64);
     for(int i=16; i < 64; i++) {
         uint32_t s0 = rotr32(w[i-15], 7) ^ rotr32(w[i-15], 18) ^ (w[i-15] >> 3);
@@ -104,14 +114,19 @@ static void sha256_impl(uint32_t arr[16], uint32_t state[8]) {
         temp1 = sum1 + ch + k[i] + w[i] + h[7];
         temp2 = sum0 + maj;
 
-        memmove(h+1, h, 28);
+        h[7] = h[6];
+        h[6] = h[5];
+        h[5] = h[4];
+        h[4] = h[3] + temp1;
+        h[3] = h[2];
+        h[2] = h[1];
+        h[1] = h[0];
         h[0] = temp1 + temp2;
-        h[4] += temp1;
     }
     for(int i=0; i < 8; i++) state[i] += h[i];
 
-    internal_free(h, 32);
-    internal_free(w, 256);
+    internal_memset(h, 0, 32);
+    internal_memset(w, 0, 256);
 }
 
 static void sha512_impl(uint64_t arr[16], uint64_t state[8]) {
@@ -132,9 +147,9 @@ static void sha512_impl(uint64_t arr[16], uint64_t state[8]) {
                             0x113f9804bef90dae, 0x1b710b35131c471b, 0x28db77f523047d84, 0x32caab7b40c72493, 0x3c9ebe0a15c9bebc, 
                             0x431d67c49c100d4c, 0x4cc5d4becb3e42b6, 0x597f299cfc657e2a, 0x5fcb6fab3ad6faec, 0x6c44198c4a475817};
 
-    uint64_t *h = (uint64_t*) malloc(64);
+    uint64_t h[8];
     memcpy(h, state, 64);
-    uint64_t *w = (uint64_t*) malloc(5120);
+    uint64_t w[80];
     memcpy(w, arr, 128);
     for(int i=16; i < 80; i++) {
         uint64_t s0 = rotr64(w[i-15], 1) ^ rotr64(w[i-15], 8) ^ (w[i-15] >> 7);
@@ -151,14 +166,20 @@ static void sha512_impl(uint64_t arr[16], uint64_t state[8]) {
         temp1 = sum1 + ch + k[i] + w[i] + h[7];
         temp2 = sum0 + maj;
 
-        memmove(h+1, h, 56);
+        // memmove(h+1, h, 56);
+        h[7] = h[6];
+        h[6] = h[5];
+        h[5] = h[4];
+        h[4] = h[3] + temp1;
+        h[3] = h[2];
+        h[2] = h[1];
+        h[1] = h[0];
         h[0] = temp1 + temp2;
-        h[4] += temp1;
     }
     for(int i=0; i < 8; i++) state[i] += h[i];
 
-    internal_free(h, 64);
-    internal_free(w, 5120);
+    internal_memset(h, 0, 64);
+    internal_memset(w, 0, 640);
 }
 
 //Byte version for sha512 only support at most (2^61) bytes
